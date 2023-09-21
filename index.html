@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ru">
+	<head>	
+		<meta http-equiv="Content-Type" content="text/html; charset = utf-8" />
+		<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-KyZXEAg3QhqLMpG8r+8fhAXLRk2vvoC2f3B09zVXn8CA5QIVfZOJ3BCsw2P0p/We" crossorigin="anonymous">
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.5.0/font/bootstrap-icons.css">
+		<meta name="description" content="Чат">
+		<title>Чат</title>
+	</head>
+	<body>	
+		<div id="deleteQuestion"></div>
+		<div id="inputName">
+			<form id="form_name" class="p-3 mb-2 bg-light text-dark">
+				<div class="mb-3">
+					<label for="name">Имя</label><br>
+					<input type="text" name="name" id="name" placeholder="Введите имя" style="width:400px">
+				</div>
+				<input type="submit" value="Войти" class="btn btn-primary mb-3">
+			</form>
+		</div>
+		<div class="blockMessage">		
+			<div class="header">
+				<div id="displayName" class="p-2 flex-grow-0"></div>
+				<div id="anotherUserTyping" class="p-2 flex-grow-0"></div>
+			</div>
+			<div class="messageListParent" id="messageListParent">
+				<div id="messageList"></div>
+			</div>		
+			<div class="sendMessage">
+				<form id="form" enctype="multipart/form-data" action="/upload" method="post">
+					<div style="display:flex; margin-top: 10px;">
+						<div>							
+							<label style="margin: 0 10px;" for="filedata" class="btn btn-primary mb-3"><i class="bi bi-paperclip"></i></label>
+						</div>
+						<div class="mb-3" style="width:100%">
+							<textarea class="form-control" style="width:inherit; resize: none; height:38px" name="message" id="message" placeholder="Введите сообщение"></textarea>
+						</div>
+						<div>
+							<input type="submit" value="Отправить" class="btn btn-primary mb-3" style="margin: 0 10px;">
+						</div>
+					</div>
+					<div class="file-drop-area">
+						<span class="file-message" id="file-message">Перетащите сюда файл, чтобы прикрепить его к сообщению</span>
+						<input class="file-input" type="file" name="file" id="filedata">
+					</div>
+				</form>
+			</div>
+		</div>
+		<script src="/socket.io/socket.io.js"></script>
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.form/3.51/jquery.form.min.js"></script>
+		<script>
+			var $fileInput = $( '.file-input' );
+			var $droparea = $( '.file-drop-area' );
+			$(document).ready( function() {
+				$droparea.hide();
+				$( '#form' ).submit( function() {
+					$( "#status" ).empty().text( "File is uploading..." );
+					$( this ).ajaxSubmit({
+						error: function( xhr ) {
+							status( 'Error: ' + xhr.status );
+						},
+						success: function( response ) {							
+							$( "#status" ).empty().text( response );
+							console.log( response );
+						}
+					});
+					return false;
+				});  			
+			});
+			
+			count = 0;
+
+			$(window).on( 'dragenter', function( event ) {
+				count++;
+				event.preventDefault();
+				event.stopPropagation();
+				$droparea.show();
+			});
+			$(window).on( 'dragleave drag', function( event ) {
+				count--;
+				event.preventDefault();
+				event.stopPropagation();
+				if(count == 0){
+					$droparea.hide();
+				}
+			});
+			
+			// highlight drag area
+			$fileInput.on( 'dragenter focus', function() {
+				$droparea.addClass( 'is-active' );
+			});
+
+			// back to normal state
+			$fileInput.on( 'dragleave blur drop', function() {
+				$droparea.removeClass( 'is-active' );
+			});
+			
+
+			// change inner text
+			$fileInput.on( 'change', function() {
+			  var filesCount = $( this )[0].files.length;
+			  var $textContainer = $( this ).prev();
+			  if ( filesCount === 1) {
+				// if single file is selected, show file name
+				var fileName = $( this ).val().split( '\\' ).pop();
+				$textContainer.html( fileName );				
+				$droparea.show();
+			  }else if ( filesCount === 0) {
+				$textContainer.html( 'Перетащите сюда файл, чтобы прикрепить его к сообщению' );				
+				$droparea.hide();
+			  } else {
+				// otherwise show number of files
+				$textContainer.html( filesCount + ' files selected' );
+			  }
+			});
+		</script>
+		<script>	
+			var socket = io.connect();
+			$( function() {
+				var $form = $( "#form" );
+				var $formName = $( "#form_name" );
+				var $name = $( "#name" );
+				var $message = $( "#message" );
+				var filedata = document.getElementById( "filedata" );
+				var $messageList = $( "#messageList" );
+				var timer = null;
+				
+				$formName.submit( function( event ) {
+					event.preventDefault();
+					socket.emit( 'name', {name: $name.val()});
+					inputName.setAttribute( 'style', 'display: none;' );
+					displayName.innerHTML = '<b>Ваше имя:</b> ' + $name.val();
+				});
+				$form.submit( function( event ) {
+					event.preventDefault();
+					let fileBool = (filedata.value != '' ) ? true : false
+					socket.emit( 'message', { message: $message.val(), name: $name.val(), fileBool: fileBool });
+					$message.val( '' );
+					filedata.value = '';
+					$( '.file-drop-area' ).hide();
+					count = 0;
+					document.getElementById( "file-message" ).innerHTML = 'Перетащите сюда файл, чтобы прикрепить его к сообщению';
+				});
+				socket.on( 'newMessage', function(data){
+					messageList.innerHTML = '';
+					for(let i = 0; i < data.list.length; i++){
+						messageList.innerHTML += data.list[i];
+						if(document.getElementsByClassName( 'nameMessage' )[i].outerText == $name.val() ){
+							id = document.getElementsByClassName( 'message' )[i].id;
+							document.getElementsByClassName( 'message' )[i].setAttribute( 'style', 'text-align: end;' );
+							document.getElementsByClassName( 'message' )[i].innerHTML = '<button class="btn btn-outline-danger btn-sm" onclick="del( this )" id="' + id + '"><i class="bi bi-x"></i></i></button><br/>' + document.getElementsByClassName( 'message' )[i].innerHTML;
+						}
+					}
+					$( "html" ).stop().animate({ scrollTop: $( "html" )[0].scrollHeight}, 1000)
+				});
+				$message.on( 'input', function() {
+					socket.emit( 'typing', {name: $name.val()});
+					clearTimeout(timer);
+					timer = setTimeout( function(){socket.emit( 'notTyping', {name: $name.val()});}, 1000);
+				});
+				socket.on( 'anotherUserTyping', function(data){
+					if ($name.val() != data.name) {
+						anotherUserTyping.innerHTML = data.name + ' печатает...';
+					};					
+				});
+				socket.on( 'anotherUserNotTyping', function(data){
+					if ($name.val() != data.name) {
+						anotherUserTyping.innerHTML = '';
+					};
+				});
+				
+			});
+			function del(e){
+				if ( /\d+/.test( $( e ).attr( 'id' ) ) ) {
+					id = $( e ).attr( 'id' );
+					deleteQuestion.innerHTML = '<div class="DQ-bg"><div class="DQ-layout mb-3"><div class="DQ-title bg-primary bg-gradient"><p>Удалить сообщение<p></div><div class="DQ-body"><p>Вы действительно хотите удалить сообщение?<p></div><div class="DQ-control"><button type="button" class="btn btn-outline-primary" id="delNo" onclick="del( this )">Отмена</button><button type="button" class="btn btn-outline-danger" id="delYes" onclick="del( this )">Удалить</button></div></div></div>'
+				} else if ( $( e ).attr( 'id' ) == 'delNo' ) {
+					deleteQuestion.innerHTML = ''
+					id = null;
+				} else if ( $( e ).attr( 'id' ) == 'delYes' ) {
+					deleteQuestion.innerHTML = ''
+					socket.emit( 'deleteMessage', {message: id});
+					id = null
+				}
+			}
+		</script>
+		<style>
+			body{
+				background: #edeef0;
+			}
+			#inputName{
+				background:rgba(0,0,0,0.7); 
+				position:absolute; 
+				width:100%; 
+				height:100%;
+				z-index: 9999;				
+				top: 0;
+				left: 0;
+			}
+			#form_name{
+			    position: relative;
+				top: 50%;
+				left: 50%;
+				transform: translate(-50%, -50%);
+				width: fit-content;
+			}
+			.message{
+				white-space: pre-line;
+				margin: 0 10px;
+			}
+			#displayName{
+				text-align:center;
+			}
+			.header{
+				text-align:center;
+				position: fixed;
+				top: 0;
+				left: 50%;
+				transform: translate(-50%, 0);
+				width: 890px;
+				background: aliceblue;
+				z-index: 15;
+			}
+			.date{
+				text-align:center;				
+			}
+			#anotherUserTyping{
+				text-align:center;				
+			}
+			.imgMessage{
+				width: 400px;
+			}
+			.videoMessage{
+				width: 400px;
+			}
+			.progressMessage{
+				width: 50px;
+			}
+			.file-drop-area {
+			  position: relative;
+			  display: flex;
+			  align-items: center;
+			  width: 100%;
+			  padding: 25px;
+			  border: 1px dashed rgba(13, 110, 253, 0.4);
+			  border-radius: 3px;
+			  transition: 0.2s;
+			}
+			.file-drop-area.is-active {
+				background-color: rgba(13, 110, 253, 0.05);
+			}
+
+			.fake-btn {
+			  flex-shrink: 0;
+			  background-color: rgba(13, 110, 253, 0.04);
+			  border: 1px solid rgba(13, 110, 253, 0.1);
+			  border-radius: 3px;
+			  padding: 8px 15px;
+			  margin-right: 10px;
+			  font-size: 12px;
+			  text-transform: uppercase;
+			}
+
+			.file-message {
+			  font-size: small;
+			  font-weight: 300;
+			  line-height: 1.4;
+			  white-space: nowrap;
+			  overflow: hidden;
+			  text-overflow: ellipsis;
+			}
+
+			.file-input {
+			  position: absolute;
+			  left: 0;
+			  top: 0;
+			  height: 100%;
+			  width: 100%;
+			  cursor: pointer;
+			  opacity: 0;
+			}
+			
+			.file-input:focus {
+				outline: none;
+			}
+			.DQ-bg{			
+				background:rgba(0,0,0,0.7); 
+				position: fixed;
+				top: 0;
+				width:100%; 
+				height:100%; 
+				z-index: 999999;
+			}
+			.DQ-layout{	
+				position:absolute; 	 
+				top: 50%;
+				left: 50%;
+				transform: translate(-50%, -50%);	
+			}
+			.DQ-title {
+				background: #0d6efd;
+				color: #fff;	
+				height: 54px;	
+				z-index: 9999;	
+				width: 450px;	
+			}
+			.DQ-body {				
+				background: #fff;
+				text-align:center;	
+				height: 54px;
+				z-index: 9999;
+				width: 450px;
+			}
+			.DQ-control {
+				background: #fff;	
+				display: flex;
+				flex-direction: column-reverse;
+				height: 54px;
+				z-index: 9999;
+				width: 450px;
+			}
+			.DQ-title p {	
+				position: relative;
+				top: 50%;
+				transform: translateY(-50%);
+				margin-left: 10px;
+			}
+			.blockMessage {
+				height: 100%;
+				position: sticky;
+			}
+			.sendMessage {
+				position: fixed;
+				width: 890px;
+				background: aliceblue;
+				z-index: 15;
+				top: 100%;
+				left: 50%;
+				transform: translate(-50%, -100%);
+			}
+			.messageListParent{
+				width: 890px;
+				margin: 56px auto 64px auto;
+				background: #fff;
+			}
+		</style>
+	</body>
+</html>
